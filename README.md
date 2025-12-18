@@ -5,6 +5,6 @@ A native comfyui port of kijai's WanVideo-Wrapper TimeToMove
 
 https://github.com/user-attachments/assets/a5e03eff-297e-4d3a-9254-5c33dacccdcc
 
-**This node is still WIP.** For now only the lcm sampler support TimeToMove, and the generated frames are a bit dark (this color difference is seen especially when a first frame is passed).
+**This node is still WIP.** For now only the [lcm sampler](https://github.com/GiusTex/ComfyUI-Wan-TimeToMove/blob/main/k_diffusion/sampling.py#L1020) supports TimeToMove, and the generated frames are a bit dark (this color difference is seen especially when a first frame is passed).
 
 The second sampler can be found here: `https://github.com/GiusTex/ComfyUI-MoreEfficientSamplers` but you can change it, and the scheduler used is this: `https://github.com/BigStationW/flowmatch_scheduler-comfyui`, useful when you use lightx loras.
