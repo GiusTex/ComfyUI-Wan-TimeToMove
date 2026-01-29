@@ -1,26 +1,10 @@
-import torch
-import logging
-from comfy_api.latest import io
-from comfy.utils import PROGRESS_BAR_ENABLED
 import torch.nn.functional as F
-import latent_preview
-import comfy
-from nodes import VAEDecodeTiled, PreviewImage, VAEDecode
-from comfy_extras.nodes_custom_sampler import Noise_EmptyNoise, Noise_RandomNoise
-from comfy.samplers import SAMPLER_NAMES
-from PIL import Image
-from .utils import (pil2tensor, warning, set_preview_method, sample_custom_ultra, 
-                    global_preview_method, store_ksampler_results, globals_cleanup, 
-                    add_noise_at_step, add_noise_to_reference_video)
-from .samplers import sampler_object
-
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-log = logging.getLogger(__name__)
+from .samplers import TTMGuider
+from .utils import add_noise_to_reference_video
 
 
 # Copied from ComfyUI Wanvideo Wrapper
-class WanVideoEncode:
+class EncodeWanVideo:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
@@ -60,21 +44,21 @@ class WanVideoEncode:
 
         if latent_strength != 1.0:
             latents *= latent_strength
-
-        log.info(f"WanVideo Encode: Encoded latents shape {latents.shape}")
+                
+        print(f"WanVideo Encode: Encoded latents shape {latents.shape}")
  
         return ({"samples": latents, "noise_mask": mask},)
-    
+
 
 # Copied from ComfyUI Wanvideo Wrapper
-class AddTTMLatent:
+class TTMLatentAdd:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
                     "latent": ("LATENT", {"tooltip": "wanvideo latent"}),
                     "reference_latents": ("LATENT", {"tooltip": "Reference image to encode"}),
-                    "start_step": ("INT", {"default": 0, "min": -1, "max": 1000, "step": 1, "tooltip": "Start step for whole denoising process"}),
-                    "end_step": ("INT", {"default": 2, "min": 1, "max": 1000, "step": 1, "tooltip": "The step to stop applying TTM"}),
+                    "ttm_start_step": ("INT", {"default": 0, "min": 0, "max": 1000, "step": 1, "tooltip": "Start step to apply TTM latent guide"}),
+                    "ttm_end_step": ("INT", {"default": 3, "min": 1, "max": 1000, "step": 1, "tooltip": "The step to stop applying TTM"}),
                     "ref_masks": ("MASK", {"tooltip": "Reference mask to encode"}),
                 }
         }
@@ -84,9 +68,10 @@ class AddTTMLatent:
     FUNCTION = "add"
     CATEGORY = "Wan22 TimeToMove"
 
-    def add(self, latent, reference_latents, start_step, end_step, ref_masks):        
-        if end_step < max(0, start_step):
-            raise ValueError(f"`end_step` ({end_step}) must be >= `start_step` ({start_step}).")
+    def add(self, latent, reference_latents, ttm_start_step, ttm_end_step, ref_masks):  
+              
+        if ttm_end_step < max(0, ttm_start_step):
+            raise ValueError(f"`ttm_end_step` ({ttm_end_step}) must be >= `ttm_start_step` ({ttm_start_step}).")
         
         mask_sampled = ref_masks[::4]
         mask_sampled = mask_sampled.unsqueeze(1).unsqueeze(0)  # [1, T, 1, H, W]
@@ -106,222 +91,97 @@ class AddTTMLatent:
 
         latent["ttm_reference_latents"] = reference_latents["samples"].squeeze(0) # [16, T, H, W]
         latent["ttm_mask"] =  mask_latent.squeeze(0).movedim(1, 0)  # [1, T, H, W]
-        latent["ttm_start_step"] = start_step
-        latent["ttm_end_step"] = end_step
-
+        latent["ttm_start_step"] = ttm_start_step
+        latent["ttm_end_step"] = ttm_end_step
+        
         return (latent,)
 
 
-class TTMKSamplerSelect(io.ComfyNode):
+class TimeToMoveGuider:    
     @classmethod
-    def define_schema(cls):
-        return io.Schema(
-            node_id="TTMKSamplerSelect",
-            category="Wan Animate End Reference",
-            inputs=[
-                io.Combo.Input("sampler_name", options=SAMPLER_NAMES, default="lcm"),
-                io.Latent.Input("latent"),
-                ],
-            outputs=[
-                io.Sampler.Output(),
-                ]
-        )
+    def INPUT_TYPES(s):
+        return {"required":
+                    {"model": ("MODEL", ),
+                    "positive": ("CONDITIONING", ),
+                    "negative": ("CONDITIONING", ),
+                    "cfg": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 100.0, "step": 0.1, "tooltip": "Works with a list of floats too (one cfg float per step)"}),
+                    "latent": ("LATENT", {"tooltip": "You can connect here the latent from TTM Latent Add, to pass reference video and ttm options"}),
+                    "start_sampler_step": ("INT", {"default": 0, "min": 0, "max": 1000, "step": 1, "tooltip": "Start step of the whole sampling process. It will automatically skip the selected number of sigmas (starting from the first ones); if the sampler has a start_step option, set the same value here"}),
+                    },
+                }
 
-    @classmethod
-    def execute(cls, sampler_name, latent) -> io.NodeOutput:
+    RETURN_TYPES = ("GUIDER",)
+    RETURN_NAMES = ("guider",)
+    FUNCTION = "guide"
+    CATEGORY = "Wan22 TimeToMove"
+
+    def guide(cls, model, positive, negative, cfg, latent, start_sampler_step):
+        guider = TTMGuider(model)
+        guider.set_conds(positive, negative)
+        guider.set_cfg(cfg)
+
         ttm_options = {}
         ttm_options["ttm_reference_latents"] = latent.get("ttm_reference_latents", None)
         ttm_options["ttm_start_step"] = latent["ttm_start_step"]
         ttm_options["ttm_end_step"] = latent["ttm_end_step"]
         ttm_options["latent_image"] = latent["samples"]
         ttm_options["motion_mask"] = latent["ttm_mask"]
+        ttm_options["start_sampler_step"] = start_sampler_step
+        guider.set_ttm_options(ttm_options)
 
-        sampler = sampler_object(sampler_name, ttm_options)
-        return io.NodeOutput(sampler)
-
-    get_sampler = execute
+        return (guider,)
 
 
-class WanVideoSamplerCustomUltraAdvancedEfficient:
-    # Image Preview code taken from jags111's efficiency-nodes (TSC_KSampler)
-    empty_image = pil2tensor(Image.new('RGBA', (1, 1), (0, 0, 0, 0)))
-
+# Taken from kijai WanVideo-Wrapper
+class CFGFloatListScheduler:
     @classmethod
     def INPUT_TYPES(s):
-        return {"required":
-                    {"model": ("MODEL",),
-                    "add_noise": ("BOOLEAN", {"default": True}),
-                    "noise_seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True}),
-                    "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step":0.1, "round": 0.01}),
-                    "positive": ("CONDITIONING", ),
-                    "negative": ("CONDITIONING", ),
-                    "sampler": ("SAMPLER", ),
-                    "sigmas": ("SIGMAS", ),
-                    "latent": ("LATENT", ),
-                    "start_at_step": ("INT", {"default": 0, "min": 0, "max": 10000}),
-                    "end_at_step": ("INT", {"default": 10000, "min": 0, "max": 10000}),
-                    "return_with_leftover_noise": ("BOOLEAN", {"default": False}),
-                    "preview_method": (["auto", "latent2rgb", "taesd", "vae_decoded_only", "none"],),
-                    "vae_decode": (["true", "true (tiled)", "false"],),
-                    },
-                    "optional": {
-                        "optional_vae": ("VAE",),
-                    },
-                    "hidden": {
-                        "prompt": "PROMPT", 
-                        "extra_pnginfo": "EXTRA_PNGINFO", 
-                        "my_unique_id": "UNIQUE_ID",
-                    },
-                }
+        return {"required": {
+            "steps": ("INT", {"default": 30, "min": 2, "max": 1000, "step": 1, "tooltip": "Number of steps to schedule cfg for"} ),
+            "cfg_scale_start": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 30.0, "step": 0.01, "round": 0.01, "tooltip": "CFG scale to use for the steps"}),
+            "cfg_scale_end": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 30.0, "step": 0.01, "round": 0.01, "tooltip": "CFG scale to use for the steps"}),
+            "interpolation": (["linear", "ease_in", "ease_out"], {"default": "linear", "tooltip": "Interpolation method to use for the cfg scale"}),
+            "start_percent": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.01,"tooltip": "Start percent of the steps to apply cfg"}),
+            "end_percent": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.01,"tooltip": "End percent of the steps to apply cfg"}),
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
+        }
 
-    RETURN_TYPES = ("MODEL", "CONDITIONING", "CONDITIONING", "SAMPLER", "SIGMAS", "LATENT","LATENT", "IMAGE", "VAE",)
-    RETURN_NAMES = ("model", "positive", "negative", "sampler", "sigmas", "output", "denoised_output", "image", "vae", )
-    FUNCTION = "sample"
+    RETURN_TYPES = ("FLOAT", )
+    RETURN_NAMES = ("float_list",)
+    FUNCTION = "process"
     CATEGORY = "Wan22 TimeToMove"
+    DESCRIPTION = "Helper node to generate a list of floats that can be used to schedule cfg scale for the steps, outside the set range cfg is set to 1.0. Taken from Kijai WanVideo-Wrapper"
 
-    def sample(self, model, add_noise, noise_seed, cfg, positive, negative, sampler, sigmas, latent, start_at_step, end_at_step, return_with_leftover_noise, preview_method, vae_decode, optional_vae=(None,), prompt=None, extra_pnginfo=None, my_unique_id=None):
-        latent_image = latent["samples"]
-        latent_image = comfy.sample.fix_empty_latent_channels(model, latent_image)
-        latent["samples"] = latent_image
-        
-        # Rename the vae variable
-        vae = optional_vae
-        # If vae is not connected, disable vae decoding
-        if vae == (None,) and vae_decode != "false":
-            print(f"{warning('Sampler Custom Ultra Advanced Warning:')} No vae input detected, proceeding as if vae_decode was false.\n")
-            vae_decode = "false"
-        
-        # ------------------------------------------------------------------------------------------------------
-        def vae_decode_latent(vae, out, vae_decode):
-            return VAEDecodeTiled().decode(vae,out,320)[0] if "tiled" in vae_decode else VAEDecode().decode(vae,out)[0]
-        # ---------------------------------------------------------------------------------------------------------------
+    def process(self, steps, cfg_scale_start, cfg_scale_end, interpolation, start_percent, end_percent, unique_id):
 
-        noise_mask = None
-        if "noise_mask" in latent:
-            noise_mask = latent["noise_mask"]
-        
-        def process_latents():
-            x0_output = {}
-            # Initialize output variables
-            out = out_denoised = images = preview = previous_preview_method = None
+        # Create a list of floats for the cfg schedule
+        cfg_list = [1.0] * steps
+        start_idx = min(int(steps * start_percent), steps - 1)
+        end_idx = min(int(steps * end_percent), steps - 1)
 
-            if not add_noise:
-                noise = Noise_EmptyNoise().generate_noise(latent)
+        for i in range(start_idx, end_idx + 1):
+            if i >= steps:
+                break
+
+            if end_idx == start_idx:
+                t = 0
             else:
-                noise = Noise_RandomNoise(noise_seed).generate_noise(latent)
-                
-                #Time-to-move (TTM)
-                ttm_start_step = 0
-                ttm_reference_latents = latent.get("ttm_reference_latents", None)
-                if ttm_reference_latents is not None:
-                    motion_mask = latent["ttm_mask"].to(latent_image.device, latent_image.dtype)
-                    ttm_start_step = max(latent["ttm_start_step"] - start_at_step, 0)
-                    ttm_end_step = latent["ttm_end_step"] - start_at_step
-    
-                    if ttm_start_step > end_at_step:
-                        raise ValueError("TTM start step is beyond the total number of steps")
-                    
-                    sigma = sigmas[ttm_start_step]
+                t = (i - start_idx) / (end_idx - start_idx)
 
-                    if ttm_end_step > ttm_start_step:
-                        log.info("Using Time-to-move (TTM)")
-                        log.info(f"TTM reference latents shape: {ttm_reference_latents.shape}")
-                        log.info(f"TTM motion mask shape: {motion_mask.shape}")
-                        log.info(f"Applying TTM from step {ttm_start_step} to {ttm_end_step}")
+            if interpolation == "linear":
+                factor = t
+            elif interpolation == "ease_in":
+                factor = t * t
+            elif interpolation == "ease_out":
+                factor = t * (2 - t)
 
-                        noise = add_noise_at_step(ttm_reference_latents,
-                                            noise, 
-                                            sigma
-                        ).to(latent_image.device, latent_image.dtype)
-                #--------------------------------------------------------------
-                
-            try:
-                # Change the global preview method (temporarily)
-                set_preview_method(preview_method)
-                
-                x0_output = {}
-                callback = latent_preview.prepare_callback(model, sigmas.shape[-1] - 1, x0_output)
+            cfg_list[i] = round(cfg_scale_start + factor * (cfg_scale_end - cfg_scale_start), 2)
 
-                disable_pbar = not PROGRESS_BAR_ENABLED
-        
-                disable_noise = False
-                if not add_noise:
-                    disable_noise = True
-                                
-                # Prepare noise for img specified by batch_inds
-                if disable_noise:
-                    noise = torch.zeros(latent_image.size(), dtype=latent_image.dtype, layout=latent_image.layout, device="cpu")
-                else:
-                    batch_inds = latent["batch_index"] if "batch_index" in latent else None
-                    noise = comfy.sample.prepare_noise(latent_image, noise_seed, batch_inds)
-                  
-                force_full_denoise = True
-                if return_with_leftover_noise:
-                    force_full_denoise = False
-        
-                device = comfy.model_management.intermediate_device()
-                model_options = model.model_options
-                start_step = start_at_step
-                last_step = end_at_step
-                denoise_mask = noise_mask
+        # If start_percent > 0, always include the first step
+        if start_percent > 0:
+            cfg_list[0] = 1.0
 
-                samples = sample_custom_ultra(model, device, 
-                                        noise, 
-                                        sampler, 
-                                        positive, negative, 
-                                        cfg, model_options, 
-                                        latent_image, 
-                                        start_step, last_step, 
-                                        force_full_denoise, denoise_mask, 
-                                        sigmas, 
-                                        callback, disable_pbar, noise_seed)
-                
-                samples = samples.to(comfy.model_management.intermediate_device())
-                
-                out = latent.copy()
-                out["samples"] = samples
-                if "x0" in x0_output:
-                    out_denoised = latent.copy()
-                    out_denoised["samples"] = model.model.process_latent_out(x0_output["x0"].cpu())
-                else:
-                    out_denoised = out
-    
-                previous_preview_method = global_preview_method()
-
-                # ---------------------------------------------------------------------------------------------------------------
-                # Decode image if not yet decoded
-                if "true" in vae_decode:
-                    if images is None:
-                        images = vae_decode_latent(vae, out, vae_decode)
-                        # Store decoded image as base image of no script is detected
-                        store_ksampler_results("image", my_unique_id, images)
-    
-                # Define preview images
-                if preview_method == "none" or (preview_method == "vae_decoded_only" and vae_decode == "false"):
-                    preview = {"images": list()}
-                elif images is not None:
-                    preview = PreviewImage().save_images(images, prompt=prompt, extra_pnginfo=extra_pnginfo)["ui"]
-        
-                # Define a dummy output image
-                if images is None and vae_decode == "false":
-                    images = WanVideoSamplerCustomUltraAdvancedEfficient.empty_image
-
-            finally:
-                # Restore global changes
-                set_preview_method(previous_preview_method)
-              
-            return out, out_denoised, preview, images
-        
-        # ---------------------------------------------------------------------------------------------------------------
-        # Clean globally stored objects of non-existant nodes
-        globals_cleanup(prompt)
-        # ---------------------------------------------------------------------------------------------------------------
-        out, out_denoised, preview, images = process_latents()
-
-        result = (model, positive, negative, sampler, sigmas, 
-                  out, out_denoised, images, vae,)
-
-        if preview is None:
-            return {"result": result}
-        else:
-            return {"ui": preview, "result": result}
+        return (cfg_list,)
