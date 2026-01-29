@@ -3,7 +3,13 @@ A native comfyui port of Kijai's WanVideo-Wrapper TimeToMove
 
 <img width="782" height="458" alt="WanTTM nodes (updated)" src="https://github.com/user-attachments/assets/a2f81804-442e-431a-b5cd-34f71f3c01a5" />
 
-VIDEO COMPARISON! (with first frame, video+mask guide, and output)
+### v2:
+- Solved color issue.
+
+### WIP
+- Working to fix bug on longer sequences (around 49 frames seems to work, around 81 frames duplicates the subject)
+
+[VIDEO COMPARISON]
 
 ### Nodes
 The custom node contains 4 new nodes:
