@@ -89,8 +89,8 @@ class TTMLatentAdd:
             mode="nearest"
         )
 
-        latent["ttm_reference_latents"] = reference_latents["samples"].squeeze(0) # [16, T, H, W]
-        latent["ttm_mask"] =  mask_latent.squeeze(0).movedim(1, 0)  # [1, T, H, W]
+        latent["ttm_reference_latents"] = reference_latents["samples"]
+        latent["ttm_mask"] =  mask_latent.movedim(2, 1)
         latent["ttm_start_step"] = ttm_start_step
         latent["ttm_end_step"] = ttm_end_step
         
@@ -106,7 +106,7 @@ class TimeToMoveGuider:
                     "negative": ("CONDITIONING", ),
                     "cfg": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 100.0, "step": 0.1, "tooltip": "Works with a list of floats too (one cfg float per step)"}),
                     "latent": ("LATENT", {"tooltip": "You can connect here the latent from TTM Latent Add, to pass reference video and ttm options"}),
-                    "start_sampler_step": ("INT", {"default": 0, "min": 0, "max": 1000, "step": 1, "tooltip": "Start step of the whole sampling process. It will automatically skip the selected number of sigmas (starting from the first ones); if the sampler has a start_step option, set the same value here"}),
+                    "start_sampler_step": ("INT", {"default": 0, "min": 0, "max": 1000, "step": 1, "tooltip": "Start step of the whole sampling process. It will automatically skip the selected number of sigmas (starting from the first ones); if the sampler has a start_step option and you changed its value, set the same here"}),
                     },
                 }
 
