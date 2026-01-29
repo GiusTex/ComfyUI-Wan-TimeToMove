@@ -1,15 +1,13 @@
 # ComfyUI-Wan-TimeToMove
 A native comfyui port of Kijai's WanVideo-Wrapper TimeToMove
 
-<img width="782" height="458" alt="WanTTM nodes (updated)" src="https://github.com/user-attachments/assets/a2f81804-442e-431a-b5cd-34f71f3c01a5" />
+<img width="763" height="449" alt="ComfyUI-TTM-nodes" src="https://github.com/user-attachments/assets/af01cab0-5ccf-435c-bab0-f138cb227f1c" />
+
+https://github.com/user-attachments/assets/0b201e7a-d3c6-417f-8293-e20e8d2872fb
 
 ### Updates:
 - Solved color issue.
-
-### WIP
-- Working to fix bug on longer sequences (around 49 frames seems to work, around 81 frames duplicates the subject)
-
-[VIDEO...]
+- Fixed other bugs.
 
 ### Nodes
 The custom node contains 4 new nodes:
