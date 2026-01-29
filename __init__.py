@@ -1,20 +1,20 @@
-from .nodes import (WanVideoEncode,
-                    TTMKSamplerSelect,
-                    AddTTMLatent,
-                    WanVideoSamplerCustomUltraAdvancedEfficient)
+from .nodes import (EncodeWanVideo,
+                    TTMLatentAdd,
+                    TimeToMoveGuider,
+                    CFGFloatListScheduler)
 
 NODE_CLASS_MAPPINGS = {
-    "WanVideoEncode": WanVideoEncode,
-    "TTMKSamplerSelect": TTMKSamplerSelect,
-    "AddTTMLatent": AddTTMLatent,
-    "WanVideoSamplerCustomUltraAdvancedEfficient": WanVideoSamplerCustomUltraAdvancedEfficient,
+    "EncodeWanVideo": EncodeWanVideo,
+    "TTMLatentAdd": TTMLatentAdd,
+    "TimeToMoveGuider": TimeToMoveGuider,
+    "CFGFloatListScheduler": CFGFloatListScheduler,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "WanVideoEncode": "WanVideo Encode",
-    "TTMKSamplerSelect": "TimeToMove KSampler Select",
-    "AddTTMLatent": "Add TTM Latent",
-    "WanVideoSamplerCustomUltraAdvancedEfficient": "WanVideoSampler Custom Ultra Advanced Efficient",
+    "EncodeWanVideo": "Encode WanVideo",
+    "TTMLatentAdd": "TTM Latent Add",
+    "TimeToMoveGuider": "TimeToMove Guider",
+    "CFGFloatListScheduler": "CFGFloatListScheduler",
 }
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
