@@ -18,7 +18,9 @@ The custom node contains 4 new nodes:
 - `Timove To Move Guider`: this node adds the ttm latent to the latent noise before passing it to the sampling function. This node removes the necessity of a dedicated sampler.
 - `CFG Float List Scheduler`: taken from wanvideo-wrapper, it creates a list of cfg values, and submits them step by step, making possible using different cfg values at different steps.
 
-The second sampler can be found here: `https://github.com/GiusTex/ComfyUI-MoreEfficientSamplers` but you can change it, and the scheduler used is this: `https://github.com/BigStationW/flowmatch_scheduler-comfyui`, useful when you use lightx loras.
+### Other custom nodes used:
+- The advanced sampler used in the [second workflow](https://github.com/GiusTex/ComfyUI-Wan-TimeToMove/blob/TTM-v2/wanvideo_2_2_I2V_A14B_TimeToMove_workflow2.json) can be found [here](https://github.com/GiusTex/ComfyUI-MoreEfficientSamplers). You can still use the native comfyui `sampler custom advanced` using [this](https://github.com/GiusTex/ComfyUI-Wan-TimeToMove/blob/TTM-v2/wanvideo_2_2_I2V_A14B_TimeToMove_workflow1.json) workflow.
+- The scheduler used is [this](https://github.com/BigStationW/flowmatch_scheduler-comfyui), useful for models using lightx loras. You can still use other samplers/schedulers.
 
 ### Download
 To install ComfyUI-Wan-TimeToMove, follow these steps:
