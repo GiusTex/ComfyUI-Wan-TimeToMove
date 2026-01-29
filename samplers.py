@@ -43,60 +43,21 @@ class TTMGuider:
         ).execute(x, timestep, model_options, seed)
 
     def predict_noise(self, x, timestep, model_options={}, seed=None):
-        
-        sigmas = model_options["sigmas"]
-        start_sampler_step = model_options["start_sampler_step"]
-        skipped_sigmas = sigmas[start_sampler_step:]
-              # 4   <    5
-        if len(skipped_sigmas) < len(sigmas): # sampler doesn't have start_step option
-            sigmas = skipped_sigmas
-              # 4   ==   4
-        elif len(skipped_sigmas) == len(sigmas): # sampler already has option
-            pass # we don't want another sigma less
-        steps = len(sigmas)-1
-
-        i = torch.argmin(torch.abs(sigmas - timestep)).item()
-
-        # Cfg part taken from Kijai WanVideo-Wrapper
-        if isinstance(self.cfg, list):
-            if steps < len(self.cfg):
-                print(f"Received {len(self.cfg)} cfg values, but only {steps} steps. Slicing cfg list to match steps.")
-                self.cfg = self.cfg[:steps]
-            elif steps > len(self.cfg):
-                print(f"Received only {len(self.cfg)} cfg values, but {steps} steps. Extending cfg list to match steps.")
-                self.cfg.extend([self.cfg[-1]] * (steps - len(self.cfg)))
-            if i == 0: # Print cfg only at first step
-                print(f"Using per-step cfg list: {self.cfg}")
-        else:
-            self.cfg = [self.cfg] * (steps + 1)
-        
         #---------------------------------------------------------
-        ttm_ref_latent = model_options["ttm_reference_latents"].to(x.device)
-        ttm_start_step = max(model_options["ttm_start_step"] - start_sampler_step, 0)
-        ttm_end_step = model_options["ttm_end_step"] - start_sampler_step
-        ttm_mask = model_options["motion_mask"].to(x.device)
+        sigmas = model_options["sigmas"]
+        noise = model_options["noise"]
+        i = torch.argmin(torch.abs(sigmas - timestep)).item()
+        
+        ttm_ref_latent = model_options["ttm_reference_latents"]
+        ttm_start_step = model_options["ttm_start_step"]
+        ttm_end_step = model_options["ttm_end_step"]
+        ttm_mask = model_options["motion_mask"]
         # Time-to-move (TTM)
-        if i == 0: # First Step
-            if ttm_ref_latent is not None:
-                if ttm_start_step > steps:
-                    raise ValueError("TTM start step is beyond the total number of steps")
-
-                if ttm_end_step > ttm_start_step:
-                    print("Using Time-to-move (TTM)")
-                    print(f"TTM reference latents shape: {ttm_ref_latent.shape}")
-                    print(f"TTM motion mask shape: {ttm_mask.shape}")
-                    print(f"Applying TTM from step {ttm_start_step} to {ttm_end_step}")
-
-                    sigma_next = sigmas[ttm_start_step]
-                    x = add_noise_at_step(ttm_ref_latent, 
-                                        x, 
-                                        sigma_next.to(x.device)
-                                    ).to(x)
-        elif ttm_ref_latent is not None and (i + ttm_start_step) < ttm_end_step: # Following Steps if i > 0
+        if (i + ttm_start_step) < ttm_end_step:
             if i + ttm_start_step < len(sigmas):
                 sigma_next = sigmas[i + ttm_start_step]
                 noisy_latents = add_noise_at_step(ttm_ref_latent, 
-                                            x, 
+                                            noise,
                                             sigma_next.to(x.device)
                                         ).to(x)
                 x = x * (1 - ttm_mask) + noisy_latents * ttm_mask
@@ -119,14 +80,49 @@ class TTMGuider:
         extra_model_options.setdefault("transformer_options", {})["sample_sigmas"] = sigmas
         extra_args = {"model_options": extra_model_options, "seed": seed}
         
+        #---------------------------------------------------------
+        skipped_sigmas = sigmas[self.start_sampler_step:]
+              # 4   <    5
+        if len(skipped_sigmas) < len(sigmas): # sampler doesn't have start_step option
+            sigmas = skipped_sigmas
+              # 4   ==   4
+        elif len(skipped_sigmas) == len(sigmas): # sampler already has option
+            pass # we don't want another sigma less
+        steps = len(sigmas)-1
+        extra_args["model_options"]["steps"] = steps
+        #---------------------------------------------------------
         # Pass ttm options to KSAMPLER.sample
-        extra_args["model_options"]["ttm_reference_latents"] = self.ttm_reference_latents
-        extra_args["model_options"]["ttm_start_step"] = self.ttm_start_step
-        extra_args["model_options"]["ttm_end_step"] = self.ttm_end_step
-        extra_args["model_options"]["latent_image"] = self.latent_image
-        extra_args["model_options"]["motion_mask"] = self.motion_mask
-        extra_args["model_options"]["start_sampler_step"] = self.start_sampler_step
+        ttm_start_step = max(self.ttm_start_step - self.start_sampler_step, 0)
+        ttm_end_step = self.ttm_end_step - self.start_sampler_step
+
+        extra_args["model_options"]["ttm_reference_latents"] = self.ttm_reference_latents.to(noise.device)
+        extra_args["model_options"]["ttm_start_step"] = ttm_start_step
+        extra_args["model_options"]["ttm_end_step"] = ttm_end_step
+        extra_args["model_options"]["motion_mask"] = self.motion_mask.to(noise.device)
         extra_args["model_options"]["sigmas"] = sigmas
+        extra_args["model_options"]["noise"] = noise
+
+        if ttm_start_step > steps:
+            raise ValueError("TTM start step is beyond the total number of steps")
+
+        if ttm_end_step > ttm_start_step:
+            print("Using Time-to-move (TTM)")
+            print(f"TTM reference latents shape: {self.ttm_reference_latents.shape}")
+            print(f"TTM motion mask shape: {self.motion_mask.shape}")
+            print(f"Applying TTM from step {ttm_start_step} to {ttm_end_step}")
+        #---------------------------------------------------------
+        # Cfg schedule taken from Kijai WanVideo-Wrapper
+        if isinstance(self.cfg, list):
+            if steps < len(self.cfg):
+                print(f"Received {len(self.cfg)} cfg values, but only {steps} steps. Slicing cfg list to match steps.")
+                self.cfg = self.cfg[:steps]
+            elif steps > len(self.cfg):
+                print(f"Received only {len(self.cfg)} cfg values, but {steps} steps. Extending cfg list to match steps.")
+                self.cfg.extend([self.cfg[-1]] * (steps - len(self.cfg)))
+            print(f"Using per-step cfg list: {self.cfg}")
+        else:
+            self.cfg = [self.cfg] * (steps + 1)
+        #---------------------------------------------------------
 
         executor = comfy.patcher_extension.WrapperExecutor.new_class_executor(
             sampler.sample,
