@@ -24,6 +24,3 @@ The custom node contains 4 new nodes:
 To install ComfyUI-Wan-TimeToMove, follow these steps:
 - Go in the ComfyUI `custom_nodes` folder, then download the repository or clone it here: `git clone https://github.com/GiusTex/ComfyUI-Wan-TimeToMove.git`.
 - Restart ComfyUI.
-
-### Known Bugs
-If the `Encode WanVideo` node shows `noise_aug_strenght` 272 and `latent_strength` 272, change the values, by default they are 0 and 1.
