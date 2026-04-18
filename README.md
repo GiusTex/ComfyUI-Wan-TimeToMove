@@ -6,19 +6,17 @@ A native comfyui port of Kijai's WanVideo-Wrapper TimeToMove
 https://github.com/user-attachments/assets/0b201e7a-d3c6-417f-8293-e20e8d2872fb
 
 ### Updates:
-- Solved color issue.
-- Fixed other bugs.
+- Moved `CFGFloatListScheduler` to [ComfyUI-MoreEfficientSamplers](https://github.com/GiusTex/ComfyUI-MoreEfficientSamplers).
 
 ### Nodes
-The custom node contains 4 new nodes:
+The custom node contains 3 new nodes:
 - `Encode WanVideo`: taken from wanvideo-wrapper, it encodes the reference video.
 - `TTM Latent Add`: taken from wanvideo-wrapper, it embeds in the latent the reference to the driving video.
 - `Timove To Move Guider`: this node adds the ttm latent to the latent noise before passing it to the sampling function. This node removes the necessity of a dedicated sampler.
-- `CFG Float List Scheduler`: taken from wanvideo-wrapper, it creates a list of cfg values, and submits them step by step, making possible using different cfg values at different steps.
 
 ### Other custom nodes used:
-- The advanced sampler used in the [second workflow](https://github.com/GiusTex/ComfyUI-Wan-TimeToMove/blob/TTM-v2/wanvideo_2_2_I2V_A14B_TimeToMove_workflow2.json) can be found [here](https://github.com/GiusTex/ComfyUI-MoreEfficientSamplers). You can still use the native comfyui `sampler custom advanced` using [this](https://github.com/GiusTex/ComfyUI-Wan-TimeToMove/blob/TTM-v2/wanvideo_2_2_I2V_A14B_TimeToMove_workflow1.json) workflow.
 - The scheduler used is [this](https://github.com/BigStationW/flowmatch_scheduler-comfyui), useful for models using lightx loras. You can still use other samplers/schedulers.
+- If you don't have kijai wan-videowrapper and need a cfg scheduler, you can find `CFGFloatListScheduler` here [ComfyUI-MoreEfficientSamplers](https://github.com/GiusTex/ComfyUI-MoreEfficientSamplers).
 
 ### Download
 To install ComfyUI-Wan-TimeToMove, follow these steps:
